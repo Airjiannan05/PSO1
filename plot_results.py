@@ -5,6 +5,7 @@
   - Fig 4: 四个典型函数的进化曲线（f1, f6, f9, f10）
 """
 
+import os
 import pickle
 import numpy as np
 import matplotlib
@@ -17,6 +18,21 @@ from benchmark import FUNCTIONS
 from pso import METHODS, METHOD_LABELS, METHOD_COLORS, METHOD_MARKERS
 
 RESULTS_FILE = "results.pkl"
+OUTPUT_ROOT  = "output"
+
+
+def latest_experiment_dir():
+    """返回 output/ 下编号最大的 exN 目录路径"""
+    if not os.path.isdir(OUTPUT_ROOT):
+        raise FileNotFoundError(f"找不到输出根目录：{OUTPUT_ROOT}")
+    dirs = [d for d in os.listdir(OUTPUT_ROOT)
+            if d.startswith("ex") and d[2:].isdigit()
+            and os.path.isdir(os.path.join(OUTPUT_ROOT, d))]
+    if not dirs:
+        raise FileNotFoundError(f"{OUTPUT_ROOT}/ 下没有找到任何 exN 目录")
+    latest = sorted(dirs, key=lambda d: int(d[2:]))[-1]
+    return os.path.join(OUTPUT_ROOT, latest)
+
 
 # 论文中函数的简写标签
 FUNC_LABELS = ["$f_1$","$f_2$","$f_3$","$f_4$","$f_5$",
@@ -30,10 +46,14 @@ METHOD_CN = {
 }
 
 
-def load_data():
-    with open(RESULTS_FILE, "rb") as f:
+def load_data(exp_dir=None):
+    if exp_dir is None:
+        exp_dir = latest_experiment_dir()
+    path = os.path.join(exp_dir, RESULTS_FILE)
+    print(f"加载实验数据：{path}")
+    with open(path, "rb") as f:
         data = pickle.load(f)
-    return data["results"], data["curves"]
+    return data["results"], data["curves"], exp_dir
 
 
 
@@ -185,7 +205,7 @@ def print_table(results, D):
 # 绘制进化曲线（对应论文 Fig. 4）
 # ──────────────────────────────────────────────
 
-def plot_curves(curves):
+def plot_curves(curves, exp_dir=None):
     # 论文图4选的4个函数
     selected = ["f1  Sphere", "f6  Step", "f9  Rastrigin", "f10 Ackley"]
     labels   = ["(a) f1 Sphere", "(b) f6 Step", "(c) f9 Rastrigin", "(d) f10 Ackley"]
@@ -224,8 +244,9 @@ def plot_curves(curves):
 
     fig.suptitle("图4  4种算法在典型10维函数上的进化曲线", fontsize=13, y=1.01)
     plt.tight_layout()
-    plt.savefig("evolution_curves.png", dpi=150, bbox_inches='tight')
-    print("进化曲线已保存至 evolution_curves.png")
+    save_path = os.path.join(exp_dir, "evolution_curves.png") if exp_dir else "evolution_curves.png"
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"进化曲线已保存至 {save_path}")
     plt.show()
 
 
@@ -233,7 +254,7 @@ def plot_curves(curves):
 # 绘制 ω 随迭代变化图
 # ──────────────────────────────────────────────
 
-def plot_omega():
+def plot_omega(exp_dir=None):
     T_max = 2000
     T_arr = np.arange(1, T_max + 1)
     t_arr = T_arr / T_max
@@ -263,8 +284,9 @@ def plot_omega():
     ax.grid(True, linestyle='--', alpha=0.4)
     ax.set_ylim(0.35, 0.95)
     plt.tight_layout()
-    plt.savefig("omega_comparison.png", dpi=150)
-    print("ω 变化曲线已保存至 omega_comparison.png")
+    save_path = os.path.join(exp_dir, "omega_comparison.png") if exp_dir else "omega_comparison.png"
+    plt.savefig(save_path, dpi=150)
+    print(f"ω 变化曲线已保存至 {save_path}")
     plt.show()
 
 
@@ -273,18 +295,18 @@ def plot_omega():
 # ──────────────────────────────────────────────
 
 if __name__ == "__main__":
-    results, curves = load_data()
+    results, curves, exp_dir = load_data()
 
     # 打印文本结果（快速查看）
     print_table(results, 10)
     print_table(results, 30)
 
-    # 绘制论文格式表格图片
-    plot_table(results, 10, "table_10D.png")
-    plot_table(results, 30, "table_30D.png")
+    # 绘制论文格式表格图片（保存到实验目录）
+    plot_table(results, 10, os.path.join(exp_dir, "table_10D.png"))
+    plot_table(results, 30, os.path.join(exp_dir, "table_30D.png"))
 
     # 绘制 ω 变化图
-    plot_omega()
+    plot_omega(exp_dir)
 
     # 绘制进化曲线
-    plot_curves(curves)
+    plot_curves(curves, exp_dir)

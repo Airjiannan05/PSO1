@@ -57,7 +57,19 @@ N_PARTICLES = 20
 C1 = C2     = 2.0
 DIMS        = [10, 30]
 
+OUTPUT_ROOT  = "output"
 RESULTS_FILE = "results.pkl"
+
+
+def next_experiment_dir():
+    """在 output/ 下找到下一个可用的 exN 目录并创建"""
+    os.makedirs(OUTPUT_ROOT, exist_ok=True)
+    idx = 0
+    while os.path.exists(os.path.join(OUTPUT_ROOT, f"ex{idx}")):
+        idx += 1
+    out_dir = os.path.join(OUTPUT_ROOT, f"ex{idx}")
+    os.makedirs(out_dir)
+    return out_dir
 
 
 def run_single(args):
@@ -161,8 +173,11 @@ def run_all():
     return results, curves
 
 if __name__ == "__main__":
-    # 日志文件名含时间戳
-    log_filename = f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    # 确定本次实验输出目录（output/ex0, ex1, ...）
+    out_dir = next_experiment_dir()
+
+    # 日志文件保存到实验目录
+    log_filename = os.path.join(out_dir, f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
     tee = Tee(log_filename)
     sys.stdout = tee
 
@@ -174,13 +189,15 @@ if __name__ == "__main__":
     print(f"  开始时间: {start_str}")
     print(f"  参数: N_RUNS={N_RUNS}, T_MAX={T_MAX}, N_PARTICLES={N_PARTICLES}, c1=c2={C1}")
     print(f"  维度: {DIMS}")
+    print(f"  输出目录: {out_dir}")
     print(f"  日志文件: {log_filename}")
     print("=" * 60)
 
     results, curves = run_all()
 
-    # 保存结果
-    with open(RESULTS_FILE, "wb") as f:
+    # 保存结果到实验目录
+    results_path = os.path.join(out_dir, RESULTS_FILE)
+    with open(results_path, "wb") as f:
         pickle.dump({"results": results, "curves": curves}, f)
 
     total_elapsed = time.time() - wall_start
@@ -188,10 +205,10 @@ if __name__ == "__main__":
     print(f"\n{'='*60}")
     print(f"  结束时间: {end_str}")
     print(f"  总耗时: {total_elapsed/60:.1f} 分钟")
-    print(f"  实验结果已保存至 {RESULTS_FILE}")
+    print(f"  实验结果已保存至 {results_path}")
     print(f"  日志已保存至 {log_filename}")
     print("=" * 60)
-    print("运行 plot_results.py 生成图表和表格")
+    print(f"运行 plot_results.py 生成图表和表格（默认读取最新实验目录）")
 
     sys.stdout = tee.terminal
     tee.close()
