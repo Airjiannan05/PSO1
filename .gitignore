@@ -1,0 +1,25 @@
+# Python 编译缓存
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 实验产物
+results.pkl
+*.log
+
+# 输出图表（如不需要版本控制）
+output/
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+
+# Windows
+Thumbs.db
+desktop.ini
