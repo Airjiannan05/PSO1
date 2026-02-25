@@ -36,31 +36,6 @@ def load_data():
     return data["results"], data["curves"]
 
 
-def _fmt(val):
-    """将数值格式化为论文样式的科学计数法字符串"""
-    if val == 0.0:
-        return "0"
-    # 用 E 格式，去掉多余的0，保留4位有效数字
-    s = f"{val:.4E}"
-    # 如 1.6350E-44 → 1.635E-44
-    mantissa, exp = s.split("E")
-    mantissa = mantissa.rstrip("0").rstrip(".")
-    exp_int = int(exp)
-    return f"{mantissa}E{exp_int:+03d}".replace("+0", "+").replace("-0", "-").replace("E+", "E").replace("E-0", "E-").replace("E+0", "E")
-
-
-def _fmt2(val):
-    """4位有效数字科学计数法，与论文格式一致"""
-    if val == 0.0:
-        return "0"
-    exp = int(np.floor(np.log10(abs(val)))) if val != 0 else 0
-    if -4 <= exp <= 4:
-        # 普通十进制，4位有效数字
-        sig = 4 - exp - 1 if exp >= 0 else 4
-        return f"{val:.{max(sig,0)}f}"
-    else:
-        return f"{val:.3E}"
-
 
 # ──────────────────────────────────────────────
 # 绘制论文格式表格图片（对应 Table 2 / Table 3）
@@ -83,7 +58,9 @@ def plot_table(results, D, save_path=None):
         fname = func_info["name"]
         means = {m: results[D][fname][m]["mean"] for m in METHODS}
         stds  = {m: results[D][fname][m]["std"]  for m in METHODS}
-        best_method = min(METHODS, key=lambda m: means[m])
+        best_val = min(means.values())
+        # 用 isclose 找出所有并列最优的算法
+        best_methods = {m for m in METHODS if np.isclose(means[m], best_val, rtol=1e-6, atol=1e-300)}
 
         row_texts = [FUNC_LABELS[fi]]
         row_bold  = [False]
@@ -105,7 +82,7 @@ def plot_table(results, D, save_path=None):
         for m in METHODS:
             mt = fmt_cell(means[m])
             st = fmt_cell(stds[m])
-            is_best = (m == best_method)
+            is_best = (m in best_methods)
             row_texts += [mt, st]
             row_bold  += [is_best, is_best]
         cell_texts.append(row_texts)
@@ -149,9 +126,12 @@ def plot_table(results, D, save_path=None):
             cell.set_facecolor('#DDEEFF')
             cell.set_text_props(fontweight='bold', fontsize=9)
             if c in [1, 3, 5, 7]:
-                cell.set_text_props(fontweight='bold', fontsize=9, ha='center')
-            if c in [2, 4, 6, 8]:
+                # 左半格：显示方法名，隐藏右边框，伪造合并单元格
+                cell.visible_edges = 'LBT'
+            elif c in [2, 4, 6, 8]:
+                # 右半格：清空文字，隐藏左边框
                 cell.get_text().set_text("")
+                cell.visible_edges = 'RBT'
         elif r == 1:
             cell.set_facecolor('#EEF4FF')
             cell.set_text_props(fontweight='bold', fontsize=8.5)
@@ -226,8 +206,8 @@ def plot_curves(curves):
         y_min = y_mins[fname]
         for method in METHODS:
             curve = np.array(curves[fname][method], dtype=float)
-            # 将0或极小值替换为nan，让曲线在收敛到0时自然截断
-            y = np.where(curve > y_min, curve, np.nan)
+            # clip 到 y_min，触底后平铺而非断裂
+            y = np.clip(curve, y_min, None)
             ax.semilogy(
                 range(1, len(y) + 1),
                 y,
@@ -263,18 +243,18 @@ def plot_omega():
         'LDW':     w_max - (w_max - w_min) * t_arr,
         'CONCAVE': -(w_max - w_min) * t_arr ** 2 + w_max,
         'CONVEX':  (w_max - w_min) * (t_arr - 1) ** 2 + w_min,
+        # RIW：每步真实随机采样，展示其核心"随机震荡"特征
+        'RIW':     np.random.uniform(0.4, 0.6, T_max),
     }
-    # RIW 用均值线展示
-    omega['RIW'] = np.full(T_max, 0.5)
 
     fig, ax = plt.subplots(figsize=(7, 4))
     for method in METHODS:
-        style = '--' if method == 'RIW' else '-'
+        lw = 0.6 if method == 'RIW' else 2   # RIW 细线，震荡密集时清晰可辨
         ax.plot(t_arr, omega[method],
                 color=METHOD_COLORS[method],
-                linestyle=style,
+                linestyle='-',
                 label=METHOD_LABELS[method],
-                linewidth=2)
+                linewidth=lw)
 
     ax.set_xlabel("归一化迭代进度 t = T/T_max", fontsize=11)
     ax.set_ylabel("惯量权重 ω", fontsize=11)
