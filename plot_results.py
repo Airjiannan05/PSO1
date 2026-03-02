@@ -1,10 +1,14 @@
-"""
+"""plot_results.py
+
 结果可视化
-  - Table 2: 10维结果表
-  - Table 3: 30维结果表
-  - Fig 4: 四个典型函数的进化曲线（f1, f6, f9, f10）
+    - Table 2: 10维结果表
+    - Table 3: 30维结果表
+    - Fig 4: 四个典型函数的进化曲线（f1, f6, f9, f10）
+
+支持从命令行指定实验目录，并可关闭图窗显示（用于自动化批处理）。
 """
 
+import argparse
 import os
 import pickle
 import numpy as np
@@ -205,7 +209,7 @@ def print_table(results, D):
 # 绘制进化曲线（对应论文 Fig. 4）
 # ──────────────────────────────────────────────
 
-def plot_curves(curves, exp_dir=None):
+def plot_curves(curves, exp_dir=None, show=True):
     # 论文图4选的4个函数
     selected = ["f1  Sphere", "f6  Step", "f9  Rastrigin", "f10 Ackley"]
     labels   = ["(a) f1 Sphere", "(b) f6 Step", "(c) f9 Rastrigin", "(d) f10 Ackley"]
@@ -247,14 +251,16 @@ def plot_curves(curves, exp_dir=None):
     save_path = os.path.join(exp_dir, "evolution_curves.png") if exp_dir else "evolution_curves.png"
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     print(f"进化曲线已保存至 {save_path}")
-    plt.show()
+    if show:
+        plt.show()
+    plt.close(fig)
 
 
 # ──────────────────────────────────────────────
 # 绘制 ω 随迭代变化图
 # ──────────────────────────────────────────────
 
-def plot_omega(exp_dir=None):
+def plot_omega(exp_dir=None, show=True):
     T_max = 2000
     T_arr = np.arange(1, T_max + 1)
     t_arr = T_arr / T_max
@@ -287,15 +293,14 @@ def plot_omega(exp_dir=None):
     save_path = os.path.join(exp_dir, "omega_comparison.png") if exp_dir else "omega_comparison.png"
     plt.savefig(save_path, dpi=150)
     print(f"ω 变化曲线已保存至 {save_path}")
-    plt.show()
+    if show:
+        plt.show()
+    plt.close(fig)
 
 
-# ──────────────────────────────────────────────
-# 主程序
-# ──────────────────────────────────────────────
-
-if __name__ == "__main__":
-    results, curves, exp_dir = load_data()
+def generate_all(exp_dir=None, show=True):
+    """从指定实验目录读取 results.pkl 并生成所有图表/表格。"""
+    results, curves, exp_dir = load_data(exp_dir)
 
     # 打印文本结果（快速查看）
     print_table(results, 10)
@@ -306,7 +311,30 @@ if __name__ == "__main__":
     plot_table(results, 30, os.path.join(exp_dir, "table_30D.png"))
 
     # 绘制 ω 变化图
-    plot_omega(exp_dir)
+    plot_omega(exp_dir, show=show)
 
     # 绘制进化曲线
-    plot_curves(curves, exp_dir)
+    plot_curves(curves, exp_dir, show=show)
+
+    return exp_dir
+
+
+# ──────────────────────────────────────────────
+# 主程序
+# ──────────────────────────────────────────────
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="PSO 实验结果绘图与表格生成")
+    parser.add_argument(
+        "--exp-dir",
+        default=None,
+        help="实验目录（如 output/ex6）。不提供则自动选择 output/ 下最新 exN",
+    )
+    parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="不弹出图窗（仅保存图片），适用于自动化脚本/批处理",
+    )
+    args = parser.parse_args()
+
+    generate_all(exp_dir=args.exp_dir, show=(not args.no_show))

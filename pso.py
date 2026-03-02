@@ -42,7 +42,12 @@ def pso(func, bounds, D, method='LDW',
         n_particles=20, T_max=2000,
         c1=2.0, c2=2.0,
         w_min=0.4, w_max=0.9,
-        record_curve=False):
+        boundary='random',
+    record_curve=False,
+    v_max_factor=0.2,
+    riw_mode='decay_upper',
+    riw_w_min=None,
+    riw_w_max=None):
     """
     PSO 优化器
 
@@ -56,7 +61,16 @@ def pso(func, bounds, D, method='LDW',
     T_max       : 最大迭代次数（默认2000）
     c1, c2      : 学习因子（默认2.0）
     w_min,w_max : 惯量权重上下界
+    boundary    : 边界处理策略
+                  'absorb'  - 吸收：超界后截断位置，速度清零（原方案）
+                  'reflect' - 反弹：超界后镜像位置，速度取反（保留动能）
+                  'random'  - 随机：超界后随机重置位置和速度（最强探索）
     record_curve: 是否记录每代最优值（用于绘制进化曲线）
+    v_max_factor : 速度上限比例，v_max=(upper-lower)*v_max_factor
+    riw_mode     : RIW 版本
+                   'uniform'     - 每代在 [riw_w_min, riw_w_max] 里均匀采样
+                   'decay_upper' - 上界随迭代线性递减到下界
+    riw_w_min/max: RIW 的采样区间；为 None 时沿用 w_min/w_max
 
     Returns
     -------
@@ -64,7 +78,11 @@ def pso(func, bounds, D, method='LDW',
     curve       : 每代最优值列表（record_curve=True时返回）
     """
     lower, upper = bounds
-    v_max = (upper - lower) * 0.2   # Vmax = 搜索范围的20%
+    v_max = (upper - lower) * float(v_max_factor)   # Vmax = 搜索范围的一定比例
+
+    # RIW 的权重区间（若未单独指定，则沿用通用 w_min/w_max）
+    riw_min = w_min if riw_w_min is None else riw_w_min
+    riw_max = w_max if riw_w_max is None else riw_w_max
 
     # ── 初始化 ──
     X = np.random.uniform(lower, upper, (n_particles, D))
@@ -88,7 +106,15 @@ def pso(func, bounds, D, method='LDW',
         if method == 'LDW':
             w = omega_ldw(T, T_max, w_min, w_max)
         elif method == 'RIW':
-            w = omega_riw(n_particles, 1, 0.4, 0.6)   # 每个粒子分配1个独立的权重 (shape=(n_particles, 1))
+            if riw_mode == 'uniform':
+                # 每个粒子分配1个独立的权重 (shape=(n_particles, 1))
+                w = omega_riw(n_particles, 1, riw_min, riw_max)
+            elif riw_mode == 'decay_upper':
+                # 随着迭代进展，逐渐降低随机权重的上界，使其整体趋势递减
+                w_upper = riw_max - (riw_max - riw_min) * T / T_max
+                w = omega_riw(n_particles, 1, riw_min, w_upper)
+            else:
+                raise ValueError(f"Unknown riw_mode: {riw_mode}")
         elif method == 'CONCAVE':
             w = omega_concave(T, T_max, w_min, w_max)
         elif method == 'CONVEX':
@@ -110,14 +136,43 @@ def pso(func, bounds, D, method='LDW',
         # 位置更新
         X = X + V
 
-        # 位置限幅（边界处理：截断）
-        X = np.clip(X, lower, upper)
-
-        
-        # 速度修正：让撞墙的粒子停下来，不要继续往墙外飞
+   
+        # 速度修正
         mask_lower = X <= lower
         mask_upper = X >= upper
-        V[mask_lower | mask_upper] = 0.0  
+        out_of_bounds = mask_lower | mask_upper
+        # 1. 吸收 (Absorb): 贴在墙上，速度归零
+        if boundary == 'absorb':
+            X = np.clip(X, lower, upper)
+            V[out_of_bounds] = 0.0
+
+        # 2. 反弹 (Reflect): 像镜面一样折返位置，动能保留但方向取反
+        elif boundary == 'reflect':
+            X[mask_lower] = 2 * lower - X[mask_lower]
+            X[mask_upper] = 2 * upper - X[mask_upper]
+
+            # 极小概率下，如果速度极大导致反弹后依然越界，做一次截断兜底
+            X = np.clip(X, lower, upper)
+            
+            # 速度反向
+            V[out_of_bounds] *= -1.0
+
+        # 3. 随机 (Random): 超界后随机重置位置和速度，增强探索能力
+        elif boundary == 'random':
+            # np.sum(mask_lower) 能求出有多少个维度越界，直接生成对应数量的随机数
+            n_lower = np.sum(mask_lower)
+            n_upper = np.sum(mask_upper)
+            n_out   = np.sum(out_of_bounds)
+            
+            if n_lower > 0:
+                X[mask_lower] = np.random.uniform(lower, upper, n_lower)
+            if n_upper > 0:
+                X[mask_upper] = np.random.uniform(lower, upper, n_upper)
+            if n_out > 0:
+                V[out_of_bounds] = np.random.uniform(-v_max, v_max, n_out)
+                
+        else:
+            raise ValueError(f"未知的边界处理策略: {boundary}")
 
         # 更新个体最优
         vals = func(X)

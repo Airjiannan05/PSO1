@@ -15,6 +15,7 @@ import pickle
 import os
 import sys
 import time
+import subprocess
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -57,8 +58,54 @@ N_PARTICLES = 20
 C1 = C2     = 2.0
 DIMS        = [10, 30]
 
+# ── PSO 关键设置（会写入 notice.md，确保可复现） ──
+BOUNDARY = 'random'        # 'absorb' | 'reflect' | 'random'
+V_MAX_FACTOR = 0.2         # v_max = (upper-lower) * V_MAX_FACTOR
+W_MIN = 0.4
+W_MAX = 0.9
+
+# RIW 版本与区间
+RIW_MODE = 'decay_upper'   # 'uniform' | 'decay_upper'
+RIW_W_MIN = None           # None 表示沿用 W_MIN
+RIW_W_MAX = None           # None 表示沿用 W_MAX
+
 OUTPUT_ROOT  = "output"
 RESULTS_FILE = "results.pkl"
+
+
+def write_notice(out_dir):
+    """写入本次实验的关键配置到 notice.md（记录的=跑的）。"""
+    notice_path = os.path.join(out_dir, "notice.md")
+    riw_min = W_MIN if RIW_W_MIN is None else RIW_W_MIN
+    riw_max = W_MAX if RIW_W_MAX is None else RIW_W_MAX
+
+    lines = [
+        "# Notice\n",
+        "本文件记录该次实验的关键配置，用于复现与对比。\n",
+        "\n",
+        f"- 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
+        "\n",
+        "## 实验参数\n",
+        f"- N_RUNS: {N_RUNS}\n",
+        f"- T_MAX: {T_MAX}\n",
+        f"- N_PARTICLES: {N_PARTICLES}\n",
+        f"- c1/c2: {C1}/{C2}\n",
+        f"- DIMS: {DIMS}\n",
+        "\n",
+        "## PSO 设置\n",
+        f"- boundary: {BOUNDARY}\n",
+        f"- v_max_factor: {V_MAX_FACTOR}  (v_max=(upper-lower)*factor)\n",
+        f"- inertia(w_min,w_max): ({W_MIN}, {W_MAX})\n",
+        "\n",
+        "## RIW 设置\n",
+        f"- riw_mode: {RIW_MODE}\n",
+        f"- riw_w_range: [{riw_min}, {riw_max}]\n",
+    ]
+
+    with open(notice_path, 'w', encoding='utf-8') as f:
+        f.writelines(lines)
+
+    return notice_path
 
 
 def next_experiment_dir():
@@ -85,6 +132,12 @@ def run_single(args):
         n_particles=N_PARTICLES,
         T_max=T_MAX,
         c1=C1, c2=C2,
+        w_min=W_MIN, w_max=W_MAX,
+        boundary=BOUNDARY,
+        v_max_factor=V_MAX_FACTOR,
+        riw_mode=RIW_MODE,
+        riw_w_min=RIW_W_MIN,
+        riw_w_max=RIW_W_MAX,
         record_curve=record_curve
     )
 
@@ -130,7 +183,7 @@ def run_all():
                 label = METHOD_LABELS[method]
                 t0 = time.time()
                 print(f"  [{task_idx:>3}/{total_tasks}] [{D}D] {fname:<6}  {label:<20} ", end='', flush=True)
-
+                # 随机种子
                 # 种子只与 (fi, run) 绑定，不含 method —— 控制变量法
                 tasks = [
                     (fi, method, D, fi * 10000 + run, record_curve)
@@ -176,6 +229,9 @@ if __name__ == "__main__":
     # 确定本次实验输出目录（output/ex0, ex1, ...）
     out_dir = next_experiment_dir()
 
+    # 记录本次实验配置
+    notice_path = write_notice(out_dir)
+
     # 日志文件保存到实验目录
     log_filename = os.path.join(out_dir, f"experiment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
     tee = Tee(log_filename)
@@ -189,6 +245,7 @@ if __name__ == "__main__":
     print(f"  开始时间: {start_str}")
     print(f"  参数: N_RUNS={N_RUNS}, T_MAX={T_MAX}, N_PARTICLES={N_PARTICLES}, c1=c2={C1}")
     print(f"  维度: {DIMS}")
+    print(f"  notice: {notice_path}")
     print(f"  输出目录: {out_dir}")
     print(f"  日志文件: {log_filename}")
     print("=" * 60)
@@ -208,7 +265,17 @@ if __name__ == "__main__":
     print(f"  实验结果已保存至 {results_path}")
     print(f"  日志已保存至 {log_filename}")
     print("=" * 60)
-    print(f"运行 plot_results.py 生成图表和表格（默认读取最新实验目录）")
+    print("开始生成图表和表格...", flush=True)
+    try:
+        subprocess.run(
+            [sys.executable, "plot_results.py", "--exp-dir", out_dir, "--no-show"],
+            check=True,
+            stdout=tee.log,
+            stderr=subprocess.STDOUT,
+        )
+        print("图表和表格已生成完毕。", flush=True)
+    except Exception as e:
+        print(f"生成图表/表格失败：{e}", flush=True)
 
     sys.stdout = tee.terminal
     tee.close()
